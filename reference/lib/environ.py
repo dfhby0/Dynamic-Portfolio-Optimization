@@ -3,7 +3,6 @@ import gym.spaces
 from gym.utils import seeding
 import enum
 import numpy as np
-
 from . import data
 
 DEFAULT_BARS_COUNT = 10
@@ -17,7 +16,13 @@ class Actions(enum.Enum):
 
 
 class State:
-    def __init__(self, bars_count, commission_perc, reset_on_close, reward_on_close=True, volumes=True):
+    def __init__(self,
+                 bars_count,
+                 commission_perc,
+                 reset_on_close,
+                 reward_on_close=True,
+                 volumes=True):
+
         assert isinstance(bars_count, int)
         assert bars_count > 0
         assert isinstance(commission_perc, float)
@@ -29,14 +34,23 @@ class State:
         self.reset_on_close = reset_on_close
         self.reward_on_close = reward_on_close
         self.volumes = volumes
+        # TODO:-------------------------------------------------------------
+        # 增加参数，决定是否获取技术指标和基础因子
+        self.techindicator = False
+        self.basefactor = False
+        # TODO:END----------------------------------------------------------
 
     def reset(self, prices, offset):
         assert isinstance(prices, data.Prices)
-        assert offset >= self.bars_count-1
+        assert offset >= self.bars_count - 1
         self.have_position = False
         self.open_price = 0.0
         self._prices = prices
         self._offset = offset
+        # TODO:-------------------------------------------------------------
+        self._TechIndicator = self.get_techindicator if self.techindicator else None
+        self._BaseFactor = self.get_basefactor if self.basefactor else None
+        # TODO:END----------------------------------------------------------
 
     @property
     def shape(self):
@@ -44,7 +58,37 @@ class State:
         if self.volumes:
             return (4 * self.bars_count + 1 + 1, )
         else:
-            return (3*self.bars_count + 1 + 1, )
+            return (3 * self.bars_count + 1 + 1, )
+
+    @property
+    def get_techindicator(self):
+        """[summary]
+        根据_prices中的基础开高收低量的数据，获取技术指标
+        
+        Returns:
+            TechIndicator[array]: [description] m *（self.bars_count）的矩阵
+                m为技术指标的数量
+        """
+        TechIndicator = np.ndarray(self.bars_count)
+        # TODO:-------------------------------------------------------------
+
+        # TODO:END----------------------------------------------------------
+        return TechIndicator
+
+    @property
+    def get_basefactor(self, bar_idx):
+        """[summary]
+        根据_prices中的基础开高收低量的数据，获取基础因子数据
+        
+        Returns:
+            BaseFactor[array]: [description] m *（self.bars_count）的矩阵
+                m为基础因子的数量
+        """
+        BaseFactor = np.ndarray(self.bars_count)
+        # TODO:-------------------------------------------------------------
+
+        # TODO:END----------------------------------------------------------
+        return BaseFactor
 
     def encode(self):
         """
@@ -52,7 +96,7 @@ class State:
         """
         res = np.ndarray(shape=self.shape, dtype=np.float32)
         shift = 0
-        for bar_idx in range(-self.bars_count+1, 1):
+        for bar_idx in range(-self.bars_count + 1, 1):
             res[shift] = self._prices.high[self._offset + bar_idx]
             shift += 1
             res[shift] = self._prices.low[self._offset + bar_idx]
@@ -62,12 +106,25 @@ class State:
             if self.volumes:
                 res[shift] = self._prices.volume[self._offset + bar_idx]
                 shift += 1
+            # TODO:-------------------------------------------------------------
+            if self.techindicator:
+                for idx in self._TechIndicator.shape[0]:
+                    res[shift] = self._TechIndicator[idx,
+                                                     self._offset + bar_idx]
+                    shift += 1
+
+            if self.basefactor:
+                for idx in self._BaseFactor.shape[0]:
+                    res[shift] = self._BaseFactor[idx, self._offset + bar_idx]
+                    shift += 1
+            # TODO:END----------------------------------------------------------
         res[shift] = float(self.have_position)
         shift += 1
         if not self.have_position:
             res[shift] = 0.0
         else:
-            res[shift] = (self._cur_close() - self.open_price) / self.open_price
+            res[shift] = (self._cur_close() -
+                          self.open_price) / self.open_price
         return res
 
     def _cur_close(self):
@@ -90,22 +147,29 @@ class State:
         done = False
         close = self._cur_close()
         if action == Actions.Buy and not self.have_position:
+            # 开仓
             self.have_position = True
             self.open_price = close
-            reward -= self.commission_perc
+            reward -= self.commission_perc  # 开仓手续费成本
         elif action == Actions.Close and self.have_position:
-            reward -= self.commission_perc
-            done |= self.reset_on_close
-            if self.reward_on_close:
+            # 平仓
+            reward -= self.commission_perc  # 平仓手续费成本
+            done |= self.reset_on_close  # 观察是否有仓位变化
+            if self.reward_on_close:  # 平仓盈利
                 reward += 100.0 * (close - self.open_price) / self.open_price
+            # 参数复原
             self.have_position = False
             self.open_price = 0.0
 
+        # 窗口向前推进
         self._offset += 1
         prev_close = close
         close = self._cur_close()
-        done |= self._offset >= self._prices.close.shape[0]-1
 
+        # 判断窗口是否走到最后
+        done |= self._offset >= self._prices.close.shape[0] - 1
+
+        # 在当前窗口有持仓，则使用下一个窗口的价格来计算头寸盈利加到reward中
         if self.have_position and not self.reward_on_close:
             reward += 100.0 * (close - prev_close) / prev_close
 
@@ -124,38 +188,67 @@ class State1D(State):
             return (5, self.bars_count)
 
     def encode(self):
+
         res = np.zeros(shape=self.shape, dtype=np.float32)
-        ofs = self.bars_count-1
-        res[0] = self._prices.high[self._offset-ofs:self._offset+1]
-        res[1] = self._prices.low[self._offset-ofs:self._offset+1]
-        res[2] = self._prices.close[self._offset-ofs:self._offset+1]
+
+        # QUESTION: 增加了滚动窗口的数据？
+        ofs = self.bars_count - 1
+        res[0] = self._prices.high[self._offset - ofs:self._offset + 1]
+        res[1] = self._prices.low[self._offset - ofs:self._offset + 1]
+        res[2] = self._prices.close[self._offset - ofs:self._offset + 1]
+
+        # TODO:-------------------------------------------------------------
+
+        # TODO:END----------------------------------------------------------
+
         if self.volumes:
-            res[3] = self._prices.volume[self._offset-ofs:self._offset+1]
+            res[3] = self._prices.volume[self._offset - ofs:self._offset + 1]
             dst = 4
         else:
             dst = 3
         if self.have_position:
             res[dst] = 1.0
-            res[dst+1] = (self._cur_close() - self.open_price) / self.open_price
+            res[dst +
+                1] = (self._cur_close() - self.open_price) / self.open_price
+
         return res
 
 
 class StocksEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, prices, bars_count=DEFAULT_BARS_COUNT,
-                 commission=DEFAULT_COMMISSION_PERC, reset_on_close=True, state_1d=False,
-                 random_ofs_on_reset=True, reward_on_close=False, volumes=False):
+    def __init__(self,
+                 prices,
+                 bars_count=DEFAULT_BARS_COUNT,
+                 commission=DEFAULT_COMMISSION_PERC,
+                 reset_on_close=True,
+                 state_1d=False,
+                 random_ofs_on_reset=True,
+                 reward_on_close=False,
+                 volumes=False):
+        """
+
+        """
         assert isinstance(prices, dict)
         self._prices = prices
         if state_1d:
-            self._state = State1D(bars_count, commission, reset_on_close, reward_on_close=reward_on_close,
+            self._state = State1D(bars_count,
+                                  commission,
+                                  reset_on_close,
+                                  reward_on_close=reward_on_close,
                                   volumes=volumes)
         else:
-            self._state = State(bars_count, commission, reset_on_close, reward_on_close=reward_on_close,
+            self._state = State(bars_count,
+                                commission,
+                                reset_on_close,
+                                reward_on_close=reward_on_close,
                                 volumes=volumes)
+
         self.action_space = gym.spaces.Discrete(n=len(Actions))
-        self.observation_space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=self._state.shape, dtype=np.float32)
+        self.observation_space = gym.spaces.Box(low=-np.inf,
+                                                high=np.inf,
+                                                shape=self._state.shape,
+                                                dtype=np.float32)
         self.random_ofs_on_reset = random_ofs_on_reset
         self.seed()
 
@@ -165,7 +258,8 @@ class StocksEnv(gym.Env):
         prices = self._prices[self._instrument]
         bars = self._state.bars_count
         if self.random_ofs_on_reset:
-            offset = self.np_random.choice(prices.high.shape[0]-bars*10) + bars
+            offset = self.np_random.choice(prices.high.shape[0] -
+                                           bars * 10) + bars
         else:
             offset = bars
         self._state.reset(prices, offset)
@@ -186,10 +280,13 @@ class StocksEnv(gym.Env):
 
     def seed(self, seed=None):
         self.np_random, seed1 = seeding.np_random(seed)
-        seed2 = seeding.hash_seed(seed1 + 1) % 2 ** 31
+        seed2 = seeding.hash_seed(seed1 + 1) % 2**31
         return [seed1, seed2]
 
     @classmethod
     def from_dir(cls, data_dir, **kwargs):
-        prices = {file: data.load_relative(file) for file in data.price_files(data_dir)}
+        prices = {
+            file: data.load_relative(file)
+            for file in data.price_files(data_dir)
+        }
         return StocksEnv(prices, **kwargs)
