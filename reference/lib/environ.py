@@ -34,11 +34,13 @@ class State:
         self.reset_on_close = reset_on_close
         self.reward_on_close = reward_on_close
         self.volumes = volumes
-        # TODO:-------------------------------------------------------------
-        # 增加参数，决定是否获取技术指标和基础因子
+        # TODO:补充技术指标、基础因子、数据增强、降噪的初始化部分
+        # 添加数据处理过程的参数
         self.techindicator = False
         self.basefactor = False
-        # TODO:END----------------------------------------------------------
+        self.datadenosing = False
+        self.dataaugment = False
+        # END----------------------------------------------------------
 
     def reset(self, prices, offset):
         assert isinstance(prices, data.Prices)
@@ -47,10 +49,18 @@ class State:
         self.open_price = 0.0
         self._prices = prices
         self._offset = offset
-        # TODO:-------------------------------------------------------------
+        # TODO:补充reset中的技术指标、基础因子、数据增强、降噪的部分
         self._TechIndicator = self.get_techindicator if self.techindicator else None
         self._BaseFactor = self.get_basefactor if self.basefactor else None
-        # TODO:END----------------------------------------------------------
+
+        # QUESTION: 增强和降噪过程是全局做还是滚动做
+        if self.dataaugment:
+            self._prices = self.data_denoising(self._prices)
+
+        if self.datadenosing:
+            self._prices = self.data_denoising(self._prices)
+
+        # END----------------------------------------------------------
 
     @property
     def shape(self):
@@ -59,6 +69,32 @@ class State:
             return (4 * self.bars_count + 1 + 1, )
         else:
             return (3 * self.bars_count + 1 + 1, )
+
+    def data_denoising(self, prices):
+        """[summary]
+        数据降噪
+        Args:
+            prices ([type]): [description]
+
+        Returns:
+            [type]: [description]
+        """
+        # TODO:数据降噪部分
+
+        # END----------------------------------------------------------
+
+    def data_augment(self, prices):
+        """[summary]
+        数据增强
+        Args:
+            prices ([type]): [description]
+
+        Returns:
+            [type]: [description]
+        """
+        # TODO:数据增强部分
+
+        # END----------------------------------------------------------
 
     @property
     def get_techindicator(self):
@@ -70,13 +106,13 @@ class State:
                 m为技术指标的数量
         """
         TechIndicator = np.ndarray(self.bars_count)
-        # TODO:-------------------------------------------------------------
+        # TODO:补充技术指标的计算部分
 
-        # TODO:END----------------------------------------------------------
+        # END----------------------------------------------------------
         return TechIndicator
 
     @property
-    def get_basefactor(self, bar_idx):
+    def get_basefactor(self):
         """[summary]
         根据_prices中的基础开高收低量的数据，获取基础因子数据
         
@@ -85,9 +121,9 @@ class State:
                 m为基础因子的数量
         """
         BaseFactor = np.ndarray(self.bars_count)
-        # TODO:-------------------------------------------------------------
+        # TODO:补充基础因子的计算部分
 
-        # TODO:END----------------------------------------------------------
+        # END----------------------------------------------------------
         return BaseFactor
 
     def encode(self):
@@ -106,7 +142,7 @@ class State:
             if self.volumes:
                 res[shift] = self._prices.volume[self._offset + bar_idx]
                 shift += 1
-            # TODO:-------------------------------------------------------------
+            # TODO:补充基础类的endcode中技术指标和基础因子部分，补充滚动降噪和增强部分
             if self.techindicator:
                 for idx in self._TechIndicator.shape[0]:
                     res[shift] = self._TechIndicator[idx,
@@ -117,7 +153,7 @@ class State:
                 for idx in self._BaseFactor.shape[0]:
                     res[shift] = self._BaseFactor[idx, self._offset + bar_idx]
                     shift += 1
-            # TODO:END----------------------------------------------------------
+            # END----------------------------------------------------------
         res[shift] = float(self.have_position)
         shift += 1
         if not self.have_position:
@@ -197,10 +233,8 @@ class State1D(State):
         res[1] = self._prices.low[self._offset - ofs:self._offset + 1]
         res[2] = self._prices.close[self._offset - ofs:self._offset + 1]
 
-        # TODO:-------------------------------------------------------------
-
-        # TODO:END----------------------------------------------------------
-
+        # TODO:补充1D类中encode的技术指标和基础因子部分，补充数据增强和降噪的滚动部分
+        # END----------------------------------------------------------
         if self.volumes:
             res[3] = self._prices.volume[self._offset - ofs:self._offset + 1]
             dst = 4
